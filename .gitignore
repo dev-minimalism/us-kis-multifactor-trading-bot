@@ -1,0 +1,36 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
+.venv/
+env/
+venv/
+ENV/
+
+/.idea/
+/outputs/
+/backtest_result/
+*.csv
+
+# Environment variables
+.env
+
+# macOS
+.DS_Store
+
+# Sensitive files (credentials, notes)
+TODO.md
+claude_chat/
+
+/logs/.coverage
+.pytest_cache/
+/logs/
+/.remember/
+.cache/
