@@ -827,6 +827,14 @@ class MultiFactorBot:
 # ============================================================
 
 # Reply Keyboard 버튼 레이아웃
+def _num(value, default=0.0) -> float:
+  """DB 집계값을 float 로. 매도 기록이 없으면 AVG/MAX/MIN 이 NULL(None) 로 와서 float(None) 이 터진다."""
+  try:
+    return float(value) if value is not None else float(default)
+  except (TypeError, ValueError):
+    return float(default)
+
+
 def get_main_keyboard():
   """메인 메뉴 키보드 버튼 생성"""
   keyboard = [
@@ -1048,10 +1056,10 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE,
     losing = int(stats.get('losing_trades', 0))
 
     win_rate = (winning / total_sells * 100) if total_sells > 0 else 0
-    avg_pnl = float(stats.get('avg_pnl_percent', 0))
-    max_gain = float(stats.get('max_gain_percent', 0))
-    max_loss = float(stats.get('max_loss_percent', 0))
-    avg_days = float(stats.get('avg_holding_days', 0) or 0)
+    avg_pnl = _num(stats.get('avg_pnl_percent'))
+    max_gain = _num(stats.get('max_gain_percent'))
+    max_loss = _num(stats.get('max_loss_percent'))
+    avg_days = _num(stats.get('avg_holding_days'))
 
     text = f"📊 **[거래 통계]**\n\n"
     text += f"📈 총 거래\n"
@@ -1096,10 +1104,10 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE,
       status = bot_instance.db_manager.get_portfolio_status()
       if status:
         text += f"\n💰 [DB 포트폴리오 상태]\n"
-        text += f"• 총 자산: ${float(status['total_value']):,.2f}\n"
-        text += f"• 현금: ${float(status['current_cash']):,.2f}\n"
-        text += f"• 포지션 가치: ${float(status['positions_value']):,.2f}\n"
-        text += f"• 수익률: {float(status['total_return_percent']):.2f}%\n"
+        text += f"• 총 자산: ${_num(status.get('total_value')):,.2f}\n"
+        text += f"• 현금: ${_num(status.get('current_cash')):,.2f}\n"
+        text += f"• 포지션 가치: ${_num(status.get('positions_value')):,.2f}\n"
+        text += f"• 수익률: {_num(status.get('total_return_percent')):.2f}%\n"
         text += f"• 보유 종목: {status['num_positions']}개\n"
 
       # DB 포지션 상세 표시
@@ -1220,10 +1228,10 @@ async def performance_command(update: Update, context: ContextTypes.DEFAULT_TYPE
       losing = int(stats.get('losing_trades', 0))
 
       win_rate = (winning / total_sells * 100) if total_sells > 0 else 0
-      avg_pnl = float(stats.get('avg_pnl_percent', 0))
-      max_gain = float(stats.get('max_gain_percent', 0))
-      max_loss = float(stats.get('max_loss_percent', 0))
-      avg_days = float(stats.get('avg_holding_days', 0) or 0)
+      avg_pnl = _num(stats.get('avg_pnl_percent'))
+      max_gain = _num(stats.get('max_gain_percent'))
+      max_loss = _num(stats.get('max_loss_percent'))
+      avg_days = _num(stats.get('avg_holding_days'))
 
       text += f"📈 [거래 통계]\n"
       text += f"• 총 매수: {total_buys}건\n"

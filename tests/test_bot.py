@@ -589,3 +589,54 @@ def test_status_command_shows_updated_per_holding_returns(make_bot, monkeypatch)
   b.db_manager.update_position_price.assert_called_once_with('AAPL', 110.0)
   assert '▫️ AAPL: +10.00%' in update.message.text_out
   assert '평균 수익률: +10.00%' in update.message.text_out
+
+
+# ---------------- 텔레그램 /stats, /performance: 매도 기록 없을 때 NULL 집계 ----------------
+
+def _run(coro):
+  import asyncio
+  return asyncio.run(coro)
+
+
+def _update():
+  u = MagicMock()
+  async def reply(text, **k): u.message.text_out = text
+  u.message.reply_text = reply
+  return u
+
+
+NO_SELL_STATS = {'account_id': 1, 'total_buys': 15, 'total_sells': 0, 'winning_trades': 0, 'losing_trades': 0,
+                 'avg_pnl': None, 'avg_pnl_percent': None, 'max_gain_percent': None, 'max_loss_percent': None,
+                 'avg_holding_days': None}
+
+
+def test_stats_command_handles_null_aggregates(make_bot):
+  """매수만 있고 매도가 없으면 뷰의 AVG/MAX/MIN 이 NULL → float(None) 으로 '통계 조회 실패' 가 나던 버그"""
+  b = make_bot(db_enabled=True, paper=True)
+  b.db_manager.get_trade_statistics.return_value = NO_SELL_STATS
+  u = _update(); _run(botmod.stats_command(u, MagicMock(), b))
+  assert '통계 조회 실패' not in u.message.text_out
+  assert '매수: 15건' in u.message.text_out and '승률: 0.0%' in u.message.text_out and '평균 수익률: +0.00%' in u.message.text_out
+
+
+def test_performance_command_handles_null_aggregates(make_bot):
+  b = make_bot(db_enabled=True, paper=True)
+  b.db_manager.get_trade_statistics.return_value = NO_SELL_STATS
+  b.db_manager.get_performance_summary.return_value = {'total_value': 100661.67, 'cash': 1968.41,
+                                                        'positions_value': 98693.26, 'total_return': 0.66, 'num_positions': 15}
+  u = _update(); _run(botmod.performance_command(u, MagicMock(), b))
+  assert '실패' not in u.message.text_out and '총 매수: 15건' in u.message.text_out
+
+
+def test_status_command_handles_null_portfolio_fields(make_bot):
+  b = make_bot(db_enabled=True, paper=True)
+  b.db_manager.get_positions.return_value = []
+  b.db_manager.get_portfolio_status.return_value = {'total_value': None, 'current_cash': 100000.0,
+                                                     'positions_value': None, 'total_return_percent': None, 'num_positions': 0}
+  b.is_market_open = lambda: (False, None); b.get_current_session = lambda: '휴장'
+  u = _update(); _run(botmod.status_command(u, MagicMock(), b))
+  assert 'DB 조회 실패' not in u.message.text_out and '현금: $100,000.00' in u.message.text_out
+
+
+def test_num_helper():
+  assert botmod._num(None) == 0.0 and botmod._num('3.5') == 3.5 and botmod._num('abc', 7) == 7.0

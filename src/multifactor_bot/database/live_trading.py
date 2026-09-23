@@ -429,5 +429,5 @@ class LiveTradingManager:
             'total_buys': int(stats.get('total_buys', 0)) if stats else 0,
             'total_sells': int(stats.get('total_sells', 0)) if stats else 0,
             'win_rate': float(stats.get('winning_trades', 0)) / float(stats.get('total_sells', 1)) * 100 if stats and stats.get('total_sells') else 0,
-            'avg_pnl_percent': float(stats.get('avg_pnl_percent', 0)) if stats else 0,
+            'avg_pnl_percent': float(stats.get('avg_pnl_percent') or 0) if stats else 0,
         }
