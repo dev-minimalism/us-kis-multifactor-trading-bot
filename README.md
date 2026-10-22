@@ -333,81 +333,136 @@ backtest.run()
 - `/start` - 봇 소개
 - `/help` - 명령어 도움말
 
-### 백그라운드 실행 (nohup)
+### 서버에서 백그라운드 실행
 
-서버에서 봇을 백그라운드로 실행하려면 `nohup`을 사용하세요:
+터미널을 닫아도 봇이 계속 돌게 하는 방법은 두 가지입니다. 오래 운영할 때는 systemd를 권장합니다.
+
+| | nohup | systemd |
+|---|---|---|
+| 봇이 오류로 죽으면 | 꺼진 채로 남음 | 60초 뒤 자동 재시작 |
+| 서버를 재부팅하면 | 꺼진 채로 남음 | 자동 시작 |
+| 로그 위치 | `logs/` 폴더의 파일 | journal (`journalctl`) |
+| 필요한 권한 | 없음 | 사용자 서비스: 없음 / 시스템 서비스: sudo |
+
+**두 방법 모두 지켜야 할 것:**
+
+- **봇은 한 번에 하나만 실행합니다.** 두 개가 돌면 텔레그램 명령 수신이 충돌하고 같은 매매가 두 번 기록됩니다. 방법을 바꿀 때는 기존 봇을 먼저 끕니다.
+- **출력 버퍼링을 끕니다.** 봇은 로그를 `print()`로 찍습니다. 출력이 파일이나 journal로 가면 파이썬이 출력을 모아 두었다가 한꺼번에 쓰므로, 로그가 늦게 보이고 갑자기 죽으면 마지막 로그가 사라집니다. nohup은 `python -u`, systemd는 `Environment=PYTHONUNBUFFERED=1`을 씁니다.
+- **`kill`이나 `systemctl stop`으로 끄면 텔레그램 "🛑 봇 시스템 종료" 메시지가 오지 않습니다.** 이 메시지는 Ctrl+C로 끌 때만 보냅니다.
+
+#### 방법 1: nohup (잠깐 돌릴 때)
 
 ```bash
-# 기본 실행 (단일 로그 파일)
-nohup python scripts/run_us_kis_multifactor_trading_bot.py > bot.log 2>&1 &
-
-# 날짜+시간이 포함된 로그 파일로 실행
-nohup python scripts/run_us_kis_multifactor_trading_bot.py > bot_$(date +%Y%m%d_%H%M%S).log 2>&1 &
-
-# logs 폴더에 날짜별 로그 저장 (권장)
+cd /path/to/us-kis-multifactor-trading-bot
 mkdir -p logs
-nohup python -u scripts/run_us_kis_multifactor_trading_bot.py > logs/bot_$(date +%Y%m%d).log 2>&1 &
 
-# 안전 모드로 실행
-nohup python -u scripts/run_us_kis_multifactor_trading_bot_safe.py > logs/bot_safe_$(date +%Y%m%d).log 2>&1 &
+# 일반 모드 (.env 설정 따름)
+nohup .venv/bin/python -u scripts/run_us_kis_multifactor_trading_bot.py \
+  > logs/bot_$(date +%Y%m%d_%H%M%S).log 2>&1 &
+echo $! > logs/bot.pid
 
-# 프로세스 ID 확인
-echo $!
-
-# 또는 프로세스 목록에서 확인
-ps aux | grep "multifactor"
+# 안전 모드 (DRY_RUN=True, KIS_VIRTUAL=True 강제)
+nohup .venv/bin/python -u scripts/run_us_kis_multifactor_trading_bot_safe.py \
+  > logs/bot_safe_$(date +%Y%m%d_%H%M%S).log 2>&1 &
+echo $! > logs/bot.pid
 ```
+
+로그 파일 이름의 날짜·시각은 실행할 때 한 번만 정해집니다. 날이 바뀌어도 파일이 나뉘지 않습니다. 시각까지 넣어야 같은 날 다시 실행해도 이전 로그를 덮어쓰지 않습니다.
 
 **로그 모니터링:**
 
 ```bash
-# 실시간 로그 확인
-tail -f bot.log
-tail -f logs/bot_$(date +%Y%m%d).log
+# 가장 최근 로그를 실시간으로 보기
+tail -f "$(ls -t logs/bot_*.log | head -1)"
 
-# 최근 100줄 확인
-tail -n 100 bot.log
+# 에러만 찾기
+grep -iE "error|fail|exception" logs/bot_*.log
 
-# 에러만 확인
-grep -i "error\|fail\|exception" bot.log
-
-# 특정 키워드 실시간 모니터링
-tail -f logs/bot_$(date +%Y%m%d).log | grep -i "매수\|매도\|rebalance"
+# 매매·리밸런싱만 실시간으로 보기
+tail -f "$(ls -t logs/bot_*.log | head -1)" | grep -iE "매수|매도|rebalance"
 ```
 
-**봇 종료:**
+**실행 확인과 종료:**
 
 ```bash
-# 프로세스 ID로 종료
-kill <PID>
+# 실행 중인지 확인
+ps -ef | grep "[r]un_us_kis_multifactor_trading_bot"
 
-# 프로세스 찾아서 종료
-pkill -f "multifactor"
+# 종료
+kill $(cat logs/bot.pid)
 
-# 강제 종료 (권장하지 않음)
-kill -9 <PID>
+# kill로 꺼지지 않을 때만 강제 종료
+kill -9 $(cat logs/bot.pid)
 ```
 
-**systemd 서비스로 등록 (권장):**
+#### 방법 2: systemd 서비스 (권장)
 
-장기 운영시 systemd 서비스로 등록하면 자동 재시작, 로깅 관리가 편리합니다:
+sudo 권한이 없으면 **사용자 서비스**를, 있으면 **시스템 서비스**를 씁니다. 동작은 같고 파일 위치와 명령만 다릅니다. 아래는 Ubuntu 24.04에서 확인한 방법입니다.
 
-```bash
-# /etc/systemd/system/trading-bot.service 파일 생성
-sudo nano /etc/systemd/system/trading-bot.service
-```
+**A. 사용자 서비스 (sudo 불필요)**
+
+1. linger를 켭니다. linger가 켜져 있어야 로그아웃해도 봇이 계속 돌고, 재부팅할 때 자동으로 켜집니다.
+   ```bash
+   loginctl enable-linger $USER
+   loginctl show-user $USER -p Linger   # Linger=yes 확인
+   ```
+2. 서비스 파일을 만듭니다.
+   ```bash
+   mkdir -p ~/.config/systemd/user
+   nano ~/.config/systemd/user/trading-bot.service
+   ```
+3. 아래 내용을 넣습니다. `%h`는 홈 디렉터리입니다. `%h/code/...` 경로는 저장소 위치에 맞게 바꿉니다.
+   ```ini
+   [Unit]
+   Description=US KIS Multi-Factor Trading Bot
+
+   [Service]
+   Type=simple
+   WorkingDirectory=%h/code/us-kis-multifactor-trading-bot
+   # print() 출력이 버퍼에 쌓이지 않고 바로 journal 로 가게 한다
+   Environment=PYTHONUNBUFFERED=1
+   # 부팅 직후 DB 가 아직 안 떴으면 봇이 DB 없이 시작해 보유 종목을 복원하지 못한다. 최대 5분 기다린다
+   ExecStartPre=/usr/bin/timeout 300 /bin/sh -c 'until /usr/bin/pg_isready -h localhost -p 5432 -q; do sleep 5; done'
+   TimeoutStartSec=330
+   ExecStart=%h/code/us-kis-multifactor-trading-bot/.venv/bin/python scripts/run_us_kis_multifactor_trading_bot.py
+   Restart=on-failure
+   RestartSec=60
+
+   [Install]
+   WantedBy=default.target
+   ```
+4. systemd가 새 파일을 읽게 합니다.
+   ```bash
+   systemctl --user daemon-reload
+   ```
+5. 봇을 켜고, 재부팅할 때도 켜지게 합니다.
+   ```bash
+   systemctl --user enable --now trading-bot
+   ```
+6. 상태와 로그를 확인합니다.
+   ```bash
+   systemctl --user status trading-bot
+   journalctl --user -u trading-bot -f
+   ```
+
+**B. 시스템 서비스 (sudo 필요)**
+
+파일을 `/etc/systemd/system/trading-bot.service`에 만들고, `User=`로 실행할 계정을 지정합니다. 경로는 모두 절대 경로로 씁니다.
 
 ```ini
 [Unit]
-Description=Multi-Factor Trading Bot
-After=network.target
+Description=US KIS Multi-Factor Trading Bot
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 User=your_username
 WorkingDirectory=/path/to/us-kis-multifactor-trading-bot
-Environment="PATH=/path/to/.venv/bin"
-ExecStart=/path/to/.venv/bin/python scripts/run_us_kis_multifactor_trading_bot_safe.py
+Environment=PYTHONUNBUFFERED=1
+ExecStartPre=/usr/bin/timeout 300 /bin/sh -c 'until /usr/bin/pg_isready -h localhost -p 5432 -q; do sleep 5; done'
+TimeoutStartSec=330
+ExecStart=/path/to/us-kis-multifactor-trading-bot/.venv/bin/python scripts/run_us_kis_multifactor_trading_bot.py
 Restart=on-failure
 RestartSec=60
 
@@ -416,17 +471,37 @@ WantedBy=multi-user.target
 ```
 
 ```bash
-# 서비스 활성화 및 시작
 sudo systemctl daemon-reload
-sudo systemctl enable trading-bot
-sudo systemctl start trading-bot
-
-# 상태 확인
-sudo systemctl status trading-bot
-
-# 로그 확인
+sudo systemctl enable --now trading-bot
 sudo journalctl -u trading-bot -f
 ```
+
+**설정 설명:**
+
+- `ExecStart`: 일반 모드 스크립트는 `.env`의 `DRY_RUN`, `KIS_VIRTUAL`을 따릅니다. 항상 안전 모드로 돌리려면 `run_us_kis_multifactor_trading_bot_safe.py`로 바꿉니다.
+- `ExecStartPre`: PostgreSQL이 응답할 때까지 기다립니다. `pg_isready`는 `postgresql-client` 패키지에 들어 있습니다. DB가 다른 서버에 있으면 `-h`, `-p`를 그 서버로 바꾸고, `DB_ENABLED=False`면 이 줄과 `TimeoutStartSec` 줄을 지웁니다.
+- `Restart=on-failure`: 봇이 오류로 끝나거나 `kill -9` 등으로 죽으면 60초 뒤 다시 켭니다. `systemctl stop`으로 끄면 다시 켜지 않습니다.
+
+**운영 명령** (시스템 서비스는 `--user`를 빼고 앞에 `sudo`를 붙입니다):
+
+```bash
+systemctl --user status trading-bot          # 상태 확인
+systemctl --user restart trading-bot         # 다시 시작
+systemctl --user stop trading-bot            # 정지 (enable 상태면 다음 재부팅 때 다시 켜짐)
+systemctl --user disable trading-bot         # 재부팅 때 자동 시작 끄기
+journalctl --user -u trading-bot -f          # 실시간 로그
+journalctl --user -u trading-bot --since today | grep -iE "매수|매도|rebalance"
+```
+
+**코드나 `.env`를 바꾼 뒤 반영하기:**
+
+```bash
+cd /path/to/us-kis-multifactor-trading-bot
+git pull
+systemctl --user restart trading-bot
+```
+
+서비스 파일을 고쳤다면 `restart` 전에 `systemctl --user daemon-reload`를 먼저 실행합니다.
 
 ---
 
@@ -534,6 +609,7 @@ psql -U postgres -d us_multifactor_db -f sql/schema.sql
 
 ```bash
 # 1. 봇을 먼저 종료 (실행 중 초기화 금지)
+#    systemd: systemctl --user stop trading-bot   /   nohup: kill $(cat logs/bot.pid)
 # 2. dry-run: 실제 변경 없이 실행 결과만 확인
 sed 's/^COMMIT;/ROLLBACK;/' sql/reset_db.sql \
   | psql -h localhost -p 5432 -U your_user -d us_multifactor_db -v ON_ERROR_STOP=1

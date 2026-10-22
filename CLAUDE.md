@@ -48,6 +48,33 @@ python scripts/run_us_kis_multifactor_trading_bot.py
 # or: multifactor-bot (if installed)
 ```
 
+**On a server** the bot runs in the background as a systemd service named `trading-bot` (user service with linger, or system service) or, for short runs, under nohup. README "서버에서 백그라운드 실행" has both unit files. Things that matter when touching this:
+- The bot logs with `print()`, so output must be unbuffered (`python -u` or `PYTHONUNBUFFERED=1`) or logs arrive late and are lost on a crash
+- Only one instance may run: two Telegram pollers conflict and trades get recorded twice
+- `Restart=on-failure` restarts after a crash and starts on boot, but not after `systemctl stop`
+- SIGTERM (`kill`, `systemctl stop`) skips the `KeyboardInterrupt` handler, so the "🛑 봇 시스템 종료" Telegram message is only sent on Ctrl+C
+
+Registering the user service (no sudo; unit body is in README):
+```bash
+loginctl enable-linger $USER                     # keep running after logout, start on boot
+mkdir -p ~/.config/systemd/user
+nano ~/.config/systemd/user/trading-bot.service  # PYTHONUNBUFFERED=1, pg_isready wait, Restart=on-failure
+systemd-analyze --user verify ~/.config/systemd/user/trading-bot.service
+systemctl --user daemon-reload
+systemctl --user enable --now trading-bot
+```
+
+Commands on the server (system service: drop `--user`, prefix `sudo`):
+```bash
+systemctl --user status trading-bot
+journalctl --user -u trading-bot -f
+systemctl --user restart trading-bot     # after git pull or .env change
+systemctl --user stop trading-bot        # stays stopped until next reboot
+systemctl --user disable trading-bot     # no autostart on boot
+systemctl --user daemon-reload           # after editing the unit file, before restart
+ps -ef | grep "[r]un_us_kis_multifactor_trading_bot"   # check for a second (nohup) copy
+```
+
 ### Testing
 
 ```bash
@@ -235,7 +262,8 @@ DB_PASSWORD=your_password
 
 **Reset all trading data** (keeps schema, re-seeds accounts 1=Paper, 2=Live):
 ```bash
-# 1. Stop the bot first (there is no supervisor; a stopped bot stays stopped)
+# 1. Stop the bot first: `systemctl --user stop trading-bot` (systemd) or `kill $(cat logs/bot.pid)` (nohup)
+#    systemd keeps it stopped until the next reboot; a crash or `kill -9` makes it restart after 60s
 # 2. Dry-run: same script with COMMIT swapped for ROLLBACK
 sed 's/^COMMIT;/ROLLBACK;/' sql/reset_db.sql | psql -h localhost -p 5432 -U <user> -d <db> -v ON_ERROR_STOP=1
 # 3. Real run (optionally -v paper_capital=... -v live_capital=...)
