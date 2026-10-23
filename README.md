@@ -1,11 +1,11 @@
 # 멀티팩터 퀀트 트레이딩 봇
 
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 미국 주식 시장에서 연평균 30% 수익률을 목표로 하는 멀티팩터 퀀트 전략 트레이딩 봇입니다.
 
 주문·잔고·보유종목 조회는 **한국투자증권(KIS, Korea Investment & Securities) Open API**를 사용합니다. 프로젝트 이름과 코드에 등장하는 `kis`는 모두 한국투자증권을 뜻합니다. 시세 데이터는 yfinance를 우선 사용하고 KIS API를 보조로 씁니다. 모의투자 계좌와 실전 계좌를 `KIS_VIRTUAL` 설정으로 전환합니다.
-
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## 📋 목차
 
